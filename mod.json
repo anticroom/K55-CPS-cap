@@ -5,7 +5,7 @@
   },
   "id": "natha.cps-cap",
   "name": "CPS Cap",
-  "version": "v2.0.1",
+  "version": "v2.0.2",
   "developers": [
     "wZoinkoff",
     "Anticroom"
@@ -45,7 +45,7 @@
         "slider": true,
         "arrows": false
       },
-      "description": "How much of each click cycle is the minimum press (hold) lockout. the rest is the minimum gap before the next press. 0.5 splits the K55's ~60 ms cycle into ~30 ms press + ~30 ms release lockouts. Raise it if short taps should register as longer holds; lower it if the gap between clicks should be enforced harder.",
+      "description": "How much of each click cycle is the minimum press (hold) lockout. the rest is the minimum gap before the next press. 0.5 splits the K55's ~60 ms cycle into ~30 ms press + ~30 ms release lockouts. Raise it if short taps should register as longer holds, lower it if the gap between clicks should be enforced harder.",
       "enable-if": "enabled"
     },
     "per-button": {

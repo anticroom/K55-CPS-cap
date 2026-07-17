@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstdint>
 #include <unordered_map>
 
 using namespace geode::prelude;
@@ -22,12 +24,12 @@ namespace {
         EdgeKind lastEmitted = EdgeKind::Release;
         int queuedEdges = 0;
         PlayerButton button = PlayerButton::Jump;
-        double lockedUntil = 0.0;
+        uint64_t lockedUntil = 0;
     };
 
     struct PlayerState {
         std::array<Channel, kButtonBuckets> channels {};
-        double sharedLockedUntil = 0.0;
+        uint64_t sharedLockedUntil = 0;
     };
 
     struct Config {
@@ -38,9 +40,21 @@ namespace {
     };
 
     std::unordered_map<PlayerObject*, PlayerState> g_states;
-    double g_gameTime = 0.0;
+    uint64_t g_frame = 0; // frame counter lockouts use frame counts not time
+    double g_dtMedian = 1.0 / 240.0; // median frame time from last 9 frames
+    std::array<float, 9> g_dtHistory {};
+    size_t g_dtCount = 0;
     bool g_wasCappedThisAttempt = false;
     bool g_emittingDeferred = false;
+
+    void noteFrameDt(float dt) { // tracks median dt to change frame count lockouts
+        g_dtHistory[g_dtCount % g_dtHistory.size()] = dt;
+        ++g_dtCount;
+        auto n = std::min(g_dtCount, g_dtHistory.size());
+        auto sorted = g_dtHistory;
+        std::sort(sorted.begin(), sorted.begin() + n);
+        g_dtMedian = sorted[n / 2];
+    }
 
     size_t buttonBucket(PlayerButton button) {
         auto raw = static_cast<int>(button);
@@ -83,13 +97,17 @@ namespace {
         return state.channels[perButton ? buttonBucket(button) : 0];
     }
 
-    double& lockRef(PlayerState& state, Channel& ch, bool perButton) {
+    uint64_t& lockRef(PlayerState& state, Channel& ch, bool perButton) {
         return perButton ? ch.lockedUntil : state.sharedLockedUntil;
     }
     double lockoutFor(EdgeKind kind, Config const& cfg) {
         return kind == EdgeKind::Press ? cfg.holdLockout : cfg.gapLockout;
     }
-    bool handleEdge(PlayerObject* player, PlayerButton button, EdgeKind kind) {
+    uint64_t lockoutFrames(EdgeKind kind, Config const& cfg) { // convert time based lockout to frame count
+        auto frames = std::llround(lockoutFor(kind, cfg) / g_dtMedian);
+        return static_cast<uint64_t>(std::max<long long>(1, frames));
+    }
+    bool handleEdge(PlayerObject* player, PlayerButton button, EdgeKind kind) { // intercept input if the cap is locked
         if (g_emittingDeferred) {
             return true;
         }
@@ -99,7 +117,7 @@ namespace {
         }
         resetIfConfigChanged(cfg);
 
-        auto now = g_gameTime;
+        auto now = g_frame;
         auto& state = g_states[player];
         auto& ch = channelFor(state, button, cfg.perButton);
         auto& lock = lockRef(state, ch, cfg.perButton);
@@ -107,7 +125,7 @@ namespace {
         if (ch.queuedEdges == 0 && now >= lock) {
             ch.lastEmitted = kind;
             ch.button = button;
-            lock = now + lockoutFor(kind, cfg);
+            lock = now + lockoutFrames(kind, cfg);
             return true;
         }
 
@@ -130,7 +148,7 @@ namespace {
         return false;
     }
 
-    void flushPlayer(PlayerObject* player, Config const& cfg, double now) {
+    void flushPlayer(PlayerObject* player, Config const& cfg, uint64_t now) { // fire queued edges when frame count allows
         auto it = g_states.find(player);
         if (it == g_states.end()) {
             return;
@@ -142,11 +160,11 @@ namespace {
             auto& ch = state.channels[i];
             auto& lock = lockRef(state, ch, cfg.perButton);
             while (ch.queuedEdges > 0 && now >= lock) {
-                auto fireTime = lock;
+                auto fireFrame = lock;
                 auto kind = opposite(ch.lastEmitted);
                 ch.lastEmitted = kind;
                 ch.queuedEdges -= 1;
-                lock = fireTime + lockoutFor(kind, cfg);
+                lock = fireFrame + lockoutFrames(kind, cfg);
 
                 g_emittingDeferred = true;
                 if (kind == EdgeKind::Press) {
@@ -163,12 +181,15 @@ namespace {
 
 class $modify(CappedBaseLayer, GJBaseGameLayer) {
     void update(float dt) {
-        g_gameTime += dt;
+        if (dt > 0.f) {
+            ++g_frame;
+            noteFrameDt(dt);
+        }
         auto cfg = currentConfig();
         if (cfg.enabled && !g_states.empty()) {
             resetIfConfigChanged(cfg);
-            if (m_player1) flushPlayer(m_player1, cfg, g_gameTime);
-            if (m_player2) flushPlayer(m_player2, cfg, g_gameTime);
+            if (m_player1) flushPlayer(m_player1, cfg, g_frame);
+            if (m_player2) flushPlayer(m_player2, cfg, g_frame);
         }
         GJBaseGameLayer::update(dt);
     }
