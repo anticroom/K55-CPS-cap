@@ -41,7 +41,7 @@ namespace {
 
     std::unordered_map<PlayerObject*, PlayerState> g_states;
     uint64_t g_frame = 0; // frame counter lockouts use frame counts not time
-    double g_dtMedian = 1.0 / 240.0; // median frame time from last 9 frames
+    double g_dtMedian = 1.0 / 240.0;
     std::array<float, 9> g_dtHistory {};
     size_t g_dtCount = 0;
     bool g_wasCappedThisAttempt = false;
@@ -104,8 +104,8 @@ namespace {
         return kind == EdgeKind::Press ? cfg.holdLockout : cfg.gapLockout;
     }
     uint64_t lockoutFrames(EdgeKind kind, Config const& cfg) { // convert time based lockout to frame count
-        auto frames = std::llround(lockoutFor(kind, cfg) / g_dtMedian);
-        return static_cast<uint64_t>(std::max<long long>(1, frames));
+        auto frames = static_cast<uint64_t>(std::ceil(lockoutFor(kind, cfg) / g_dtMedian));
+        return std::max(static_cast<uint64_t>(1), frames);
     }
     bool handleEdge(PlayerObject* player, PlayerButton button, EdgeKind kind) { // intercept input if the cap is locked
         if (g_emittingDeferred) {
