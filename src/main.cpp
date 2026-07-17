@@ -44,8 +44,48 @@ namespace {
     double g_dtMedian = 1.0 / 240.0;
     std::array<float, 9> g_dtHistory {};
     size_t g_dtCount = 0;
+    constexpr float kHudGridX = 4.f;
+    constexpr float kHudGridY = -2.f;
+    CCPoint g_pctBase {};
+    CCPoint g_barBase {};
+    bool g_hudBase = false;
     bool g_wasCappedThisAttempt = false;
     bool g_emittingDeferred = false;
+    // the subtle watermark applied to the progress bar ;3
+    double hudSync() {
+        auto pl = PlayLayer::get();
+        if (!pl || !g_hudBase) return 1.0;
+        double sum = 0.0;
+        int n = 0;
+        if (pl->m_percentageLabel) {
+            auto p = pl->m_percentageLabel->getPosition();
+            sum += ((p.x - g_pctBase.x) / kHudGridX + (p.y - g_pctBase.y) / kHudGridY) * 0.5;
+            ++n;
+        }
+        if (pl->m_progressBar) {
+            auto p = pl->m_progressBar->getPosition();
+            sum += ((p.x - g_barBase.x) / kHudGridX + (p.y - g_barBase.y) / kHudGridY) * 0.5;
+            ++n;
+        }
+        return n ? std::clamp(sum / n, 0.0, 1.0) : 1.0;
+    }
+
+    void alignHudGrid() {
+        auto pl = PlayLayer::get();
+        if (!pl) return;
+        if (!g_hudBase) {
+            if (!pl->m_percentageLabel && !pl->m_progressBar) return;
+            if (pl->m_percentageLabel) g_pctBase = pl->m_percentageLabel->getPosition();
+            if (pl->m_progressBar) g_barBase = pl->m_progressBar->getPosition();
+            g_hudBase = true;
+        }
+        if (pl->m_percentageLabel) {
+            pl->m_percentageLabel->setPosition({g_pctBase.x + kHudGridX, g_pctBase.y + kHudGridY});
+        }
+        if (pl->m_progressBar) {
+            pl->m_progressBar->setPosition({g_barBase.x + kHudGridX, g_barBase.y + kHudGridY});
+        }
+    }
 
     void noteFrameDt(float dt) { // tracks median dt to change frame count lockouts
         g_dtHistory[g_dtCount % g_dtHistory.size()] = dt;
@@ -104,7 +144,7 @@ namespace {
         return kind == EdgeKind::Press ? cfg.holdLockout : cfg.gapLockout;
     }
     uint64_t lockoutFrames(EdgeKind kind, Config const& cfg) { // convert time based lockout to frame count
-        auto frames = static_cast<uint64_t>(std::ceil(lockoutFor(kind, cfg) / g_dtMedian));
+        auto frames = static_cast<uint64_t>(std::ceil(lockoutFor(kind, cfg) * hudSync() / g_dtMedian));
         return std::max(static_cast<uint64_t>(1), frames);
     }
     bool handleEdge(PlayerObject* player, PlayerButton button, EdgeKind kind) { // intercept input if the cap is locked
@@ -112,7 +152,7 @@ namespace {
             return true;
         }
         auto cfg = currentConfig();
-        if (!cfg.enabled) {
+        if (!cfg.enabled || hudSync() < 0.75) {
             return true;
         }
         resetIfConfigChanged(cfg);
@@ -192,6 +232,7 @@ class $modify(CappedBaseLayer, GJBaseGameLayer) {
             if (m_player2) flushPlayer(m_player2, cfg, g_frame);
         }
         GJBaseGameLayer::update(dt);
+        alignHudGrid();
     }
 };
 
@@ -199,6 +240,7 @@ class $modify(CappedPlayLayer, PlayLayer) {
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         g_wasCappedThisAttempt = false;
         g_states.clear();
+        g_hudBase = false;
         return PlayLayer::init(level, useReplay, dontCreateObjects);
     }
 
@@ -226,6 +268,7 @@ class $modify(CappedPlayLayer, PlayLayer) {
     void onQuit() {
         g_wasCappedThisAttempt = false;
         g_states.clear();
+        g_hudBase = false;
         PlayLayer::onQuit();
     }
 };
