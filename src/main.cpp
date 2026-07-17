@@ -144,7 +144,8 @@ namespace {
         return kind == EdgeKind::Press ? cfg.holdLockout : cfg.gapLockout;
     }
     uint64_t lockoutFrames(EdgeKind kind, Config const& cfg) { // convert time based lockout to frame count
-        auto frames = static_cast<uint64_t>(std::ceil(lockoutFor(kind, cfg) * hudSync() / g_dtMedian));
+        auto ratio = lockoutFor(kind, cfg) * hudSync() / g_dtMedian;
+        auto frames = static_cast<uint64_t>(std::ceil(ratio - 0.1));
         return std::max(static_cast<uint64_t>(1), frames);
     }
     bool handleEdge(PlayerObject* player, PlayerButton button, EdgeKind kind) { // intercept input if the cap is locked
