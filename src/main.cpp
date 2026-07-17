@@ -6,16 +6,11 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <unordered_map>
 
 using namespace geode::prelude;
 
 namespace {
-    using Clock = std::chrono::steady_clock;
-    using TimePoint = Clock::time_point;
-    using Duration = Clock::duration;
-
     constexpr size_t kButtonBuckets = 16;
     enum class EdgeKind { Press, Release };
 
@@ -27,22 +22,23 @@ namespace {
         EdgeKind lastEmitted = EdgeKind::Release;
         int queuedEdges = 0;
         PlayerButton button = PlayerButton::Jump;
-        TimePoint lockedUntil {};
+        double lockedUntil = 0.0;
     };
 
     struct PlayerState {
         std::array<Channel, kButtonBuckets> channels {};
-        TimePoint sharedLockedUntil {};
+        double sharedLockedUntil = 0.0;
     };
 
     struct Config {
         bool enabled = false;
         bool perButton = true;
-        Duration holdLockout {};
-        Duration gapLockout {}; 
+        double holdLockout = 0.0;
+        double gapLockout = 0.0;
     };
 
     std::unordered_map<PlayerObject*, PlayerState> g_states;
+    double g_gameTime = 0.0;
     bool g_wasCappedThisAttempt = false;
     bool g_emittingDeferred = false;
 
@@ -65,18 +61,14 @@ namespace {
             mod->getSettingValue<double>("hold-fraction"), 0.1, 0.9
         );
         auto cycle = 1.0 / maxCps;
-        cfg.holdLockout = std::chrono::duration_cast<Duration>(
-            std::chrono::duration<double>(cycle * holdFraction)
-        );
-        cfg.gapLockout = std::chrono::duration_cast<Duration>(
-            std::chrono::duration<double>(cycle * (1.0 - holdFraction))
-        );
+        cfg.holdLockout = cycle * holdFraction;
+        cfg.gapLockout = cycle * (1.0 - holdFraction);
         return cfg;
     }
 
     void resetIfConfigChanged(Config const& cfg) {
-        static Duration lastHold {};
-        static Duration lastGap {};
+        static double lastHold = 0.0;
+        static double lastGap = 0.0;
         static bool lastPerButton = false;
         if (cfg.holdLockout != lastHold || cfg.gapLockout != lastGap
             || cfg.perButton != lastPerButton) {
@@ -91,11 +83,10 @@ namespace {
         return state.channels[perButton ? buttonBucket(button) : 0];
     }
 
-    TimePoint& lockRef(PlayerState& state, Channel& ch, bool perButton) {
+    double& lockRef(PlayerState& state, Channel& ch, bool perButton) {
         return perButton ? ch.lockedUntil : state.sharedLockedUntil;
     }
-
-    Duration lockoutFor(EdgeKind kind, Config const& cfg) {
+    double lockoutFor(EdgeKind kind, Config const& cfg) {
         return kind == EdgeKind::Press ? cfg.holdLockout : cfg.gapLockout;
     }
     bool handleEdge(PlayerObject* player, PlayerButton button, EdgeKind kind) {
@@ -108,7 +99,7 @@ namespace {
         }
         resetIfConfigChanged(cfg);
 
-        auto now = Clock::now();
+        auto now = g_gameTime;
         auto& state = g_states[player];
         auto& ch = channelFor(state, button, cfg.perButton);
         auto& lock = lockRef(state, ch, cfg.perButton);
@@ -128,7 +119,7 @@ namespace {
         if (kind == effectiveLast) {
 
             return false;
-        }
+        }   
         if (ch.queuedEdges == 0) {
             ch.queuedEdges = 1;
             ch.button = button;
@@ -139,7 +130,7 @@ namespace {
         return false;
     }
 
-    void flushPlayer(PlayerObject* player, Config const& cfg, TimePoint now) {
+    void flushPlayer(PlayerObject* player, Config const& cfg, double now) {
         auto it = g_states.find(player);
         if (it == g_states.end()) {
             return;
@@ -172,12 +163,12 @@ namespace {
 
 class $modify(CappedBaseLayer, GJBaseGameLayer) {
     void update(float dt) {
+        g_gameTime += dt;
         auto cfg = currentConfig();
         if (cfg.enabled && !g_states.empty()) {
             resetIfConfigChanged(cfg);
-            auto now = Clock::now();
-            if (m_player1) flushPlayer(m_player1, cfg, now);
-            if (m_player2) flushPlayer(m_player2, cfg, now);
+            if (m_player1) flushPlayer(m_player1, cfg, g_gameTime);
+            if (m_player2) flushPlayer(m_player2, cfg, g_gameTime);
         }
         GJBaseGameLayer::update(dt);
     }
