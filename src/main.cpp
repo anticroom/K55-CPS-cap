@@ -35,6 +35,7 @@ namespace {
     struct Config {
         bool enabled = false;
         bool perButton = true;
+        bool debounce = false;
         double holdLockout = 0.0;
         double gapLockout = 0.0;
     };
@@ -109,6 +110,7 @@ namespace {
         Config cfg;
         cfg.enabled = mod->getSettingValue<bool>("enabled");
         cfg.perButton = mod->getSettingValue<bool>("per-button");
+        cfg.debounce = mod->getSettingValue<bool>("debounce");
 
         auto maxCps = std::max(0.1, mod->getSettingValue<double>("max-cps"));
         auto holdFraction = std::clamp(
@@ -124,11 +126,13 @@ namespace {
         static double lastHold = 0.0;
         static double lastGap = 0.0;
         static bool lastPerButton = false;
+        static bool lastDebounce = false;
         if (cfg.holdLockout != lastHold || cfg.gapLockout != lastGap
-            || cfg.perButton != lastPerButton) {
+            || cfg.perButton != lastPerButton || cfg.debounce != lastDebounce) {
             lastHold = cfg.holdLockout;
             lastGap = cfg.gapLockout;
             lastPerButton = cfg.perButton;
+            lastDebounce = cfg.debounce;
             g_states.clear();
         }
     }
@@ -148,6 +152,11 @@ namespace {
         auto frames = static_cast<uint64_t>(std::ceil(ratio - 0.1));
         return std::max(static_cast<uint64_t>(1), frames);
     }
+    uint64_t cycleFrames(Config const& cfg) {
+        auto ratio = (cfg.holdLockout + cfg.gapLockout) * hudSync() / g_dtMedian;
+        auto frames = static_cast<uint64_t>(std::ceil(ratio - 0.1));
+        return std::max(static_cast<uint64_t>(1), frames);
+    }
     bool handleEdge(PlayerObject* player, PlayerButton button, EdgeKind kind) { // intercept input if the cap is locked
         if (g_emittingDeferred) {
             return true;
@@ -162,6 +171,18 @@ namespace {
         auto& state = g_states[player];
         auto& ch = channelFor(state, button, cfg.perButton);
         auto& lock = lockRef(state, ch, cfg.perButton);
+
+        if (cfg.debounce) {
+            if (kind == EdgeKind::Release) {
+                return true;
+            }
+            if (now >= lock) {
+                lock = now + cycleFrames(cfg);
+                return true;
+            }
+            g_wasCappedThisAttempt = true;
+            return false;
+        }
 
         if (ch.queuedEdges == 0 && now >= lock) {
             ch.lastEmitted = kind;

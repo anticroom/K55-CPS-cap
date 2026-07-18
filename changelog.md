@@ -1,6 +1,7 @@
+# Release 2.0.6
+- Added a debounce option to drop clicks over the cap instead of delaying them.
 # Release 2.0.5
 - Fixed another allignment bug for 60/15 spam.
-
 # Release 2.0.4
 - Supports every other platform now!
 # Release 2.0.3
