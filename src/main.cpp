@@ -24,12 +24,12 @@ namespace {
         EdgeKind lastEmitted = EdgeKind::Release;
         int queuedEdges = 0;
         PlayerButton button = PlayerButton::Jump;
-        uint64_t lockedUntil = 0;
+        double lockedUntil = 0.0;
     };
 
     struct PlayerState {
         std::array<Channel, kButtonBuckets> channels {};
-        uint64_t sharedLockedUntil = 0;
+        double sharedLockedUntil = 0.0;
     };
 
     struct Config {
@@ -141,21 +141,23 @@ namespace {
         return state.channels[perButton ? buttonBucket(button) : 0];
     }
 
-    uint64_t& lockRef(PlayerState& state, Channel& ch, bool perButton) {
+    double& lockRef(PlayerState& state, Channel& ch, bool perButton) {
         return perButton ? ch.lockedUntil : state.sharedLockedUntil;
     }
     double lockoutFor(EdgeKind kind, Config const& cfg) {
         return kind == EdgeKind::Press ? cfg.holdLockout : cfg.gapLockout;
     }
-    uint64_t lockoutFrames(EdgeKind kind, Config const& cfg) { // convert time based lockout to frame count
-        auto ratio = lockoutFor(kind, cfg) * hudSync() / g_dtMedian;
-        auto frames = static_cast<uint64_t>(std::ceil(ratio - 0.1));
-        return std::max(static_cast<uint64_t>(1), frames);
+    double lockoutRatio(EdgeKind kind, Config const& cfg) {
+        return lockoutFor(kind, cfg) * hudSync() / g_dtMedian;
     }
-    uint64_t cycleFrames(Config const& cfg) {
-        auto ratio = (cfg.holdLockout + cfg.gapLockout) * hudSync() / g_dtMedian;
-        auto frames = static_cast<uint64_t>(std::ceil(ratio - 0.1));
-        return std::max(static_cast<uint64_t>(1), frames);
+    double cycleRatio(Config const& cfg) {
+        return (cfg.holdLockout + cfg.gapLockout) * hudSync() / g_dtMedian;
+    }
+    bool frameReached(uint64_t now, double lock) { 
+        return static_cast<double>(now) >= lock - 0.1;
+    }
+    double anchorFor(uint64_t now, double lock) {
+        return static_cast<double>(now) <= lock + 1.0 ? lock : static_cast<double>(now);
     }
     bool handleEdge(PlayerObject* player, PlayerButton button, EdgeKind kind) { // intercept input if the cap is locked
         if (g_emittingDeferred) {
@@ -176,18 +178,18 @@ namespace {
             if (kind == EdgeKind::Release) {
                 return true;
             }
-            if (now >= lock) {
-                lock = now + cycleFrames(cfg);
+            if (frameReached(now, lock)) {
+                lock = anchorFor(now, lock) + cycleRatio(cfg);
                 return true;
             }
             g_wasCappedThisAttempt = true;
             return false;
         }
 
-        if (ch.queuedEdges == 0 && now >= lock) {
+        if (ch.queuedEdges == 0 && frameReached(now, lock)) {
             ch.lastEmitted = kind;
             ch.button = button;
-            lock = now + lockoutFrames(kind, cfg);
+            lock = anchorFor(now, lock) + lockoutRatio(kind, cfg);
             return true;
         }
 
@@ -221,12 +223,12 @@ namespace {
         for (size_t i = 0; i < buckets; ++i) {
             auto& ch = state.channels[i];
             auto& lock = lockRef(state, ch, cfg.perButton);
-            while (ch.queuedEdges > 0 && now >= lock) {
-                auto fireFrame = lock;
+            while (ch.queuedEdges > 0 && frameReached(now, lock)) {
                 auto kind = opposite(ch.lastEmitted);
                 ch.lastEmitted = kind;
                 ch.queuedEdges -= 1;
-                lock = fireFrame + lockoutFrames(kind, cfg);
+                lock += lockoutRatio(kind, cfg);
+
 
                 g_emittingDeferred = true;
                 if (kind == EdgeKind::Press) {

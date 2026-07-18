@@ -1,3 +1,5 @@
+# Release 2.0.7
+- Addressed a major flaw in my logic which the SCL staff pointed out
 # Release 2.0.6
 - Added a debounce option to drop clicks over the cap instead of delaying them.
 # Release 2.0.5
