@@ -1,5 +1,5 @@
 {
-  "geode": "5.5.3",
+    "geode": "5.8.2",
   "gd": {
     "win": "2.2081",
     "android": "2.2081",
@@ -8,62 +8,20 @@
   },
   "id": "natha.cps-cap",
   "name": "CPS Cap",
-  "version": "v2.0.7",
+  "version": "v2.1.0",
   "developers": [
     "wZoinkoff",
     "Anticroom"
   ],
-  "description": "Emulates how the k55 cps cap worked.",
+  "description": "Recreates how the k55 hardware limit works.",
   "tags": [
     "offline",
     "gameplay",
     "utility"
   ],
-  "settings": {
-    "enabled": {
-      "name": "Enable CPS Cap",
-      "type": "bool",
-      "default": true
-    },
-    "max-cps": {
-      "name": "Max CPS",
-      "type": "float",
-      "default": 16.6667,
-      "min": 1.0,
-      "max": 240.0,
-      "control": {
-        "slider": true,
-        "arrows": true
-      },
-      "description": "CPS cap for the k55 recreation, default is 16.6667 as that's the k55 cps cap.",
-      "enable-if": "enabled"
-    },
-    "hold-fraction": {
-      "name": "Press/Release Split",
-      "type": "float",
-      "default": 0.5,
-      "min": 0.1,
-      "max": 0.9,
-      "control": {
-        "slider": true,
-        "arrows": false
-      },
-      "description": "How much of each click cycle is the minimum press (hold) lockout. the rest is the minimum gap before the next press. 0.5 splits the K55's ~60 ms cycle into ~30 ms press + ~30 ms release lockouts. Raise it if short taps should register as longer holds, lower it if the gap between clicks should be enforced harder.",
-      "enable-if": "enabled"
-    },
-    "debounce": {
-      "name": "Debounce",
-      "type": "bool",
-      "default": false,
-      "description": "Drops clicks over the cap instead of delaying them.",
-      "enable-if": "enabled"
-    },
-    "per-button": {
-      "name": "Cap Buttons Separately",
-      "type": "bool",
-      "default": true,
-      "description": "instead of the cap effecting all buttons globally together, it would effect every keys cps individually.",
-      "enable-if": "enabled"
-    }
+  "resources": {
+    "sprites": [
+      "resources/MenuKey.png"
+    ]
   }
 }

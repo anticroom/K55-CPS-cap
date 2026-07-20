@@ -2,7 +2,9 @@
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
+#include <Geode/modify/PauseLayer.hpp>
 #include <Geode/ui/Notification.hpp>
+#include <Geode/ui/Popup.hpp>
 
 #include <algorithm>
 #include <array>
@@ -105,16 +107,19 @@ namespace {
         return static_cast<size_t>(raw) % kButtonBuckets;
     }
 
+    constexpr double kDefaultMaxCps = 16.6667;
+    constexpr double kDefaultHoldFraction = 0.5;
+
     Config currentConfig() {
         auto mod = Mod::get();
         Config cfg;
-        cfg.enabled = mod->getSettingValue<bool>("enabled");
-        cfg.perButton = mod->getSettingValue<bool>("per-button");
-        cfg.debounce = mod->getSettingValue<bool>("debounce");
+        cfg.enabled = mod->getSavedValue<bool>("enabled", true);
+        cfg.perButton = mod->getSavedValue<bool>("per-button", false);
+        cfg.debounce = mod->getSavedValue<bool>("debounce", false);
 
-        auto maxCps = std::max(0.1, mod->getSettingValue<double>("max-cps"));
+        auto maxCps = std::max(0.1, mod->getSavedValue<double>("max-cps", kDefaultMaxCps));
         auto holdFraction = std::clamp(
-            mod->getSettingValue<double>("hold-fraction"), 0.1, 0.9
+            mod->getSavedValue<double>("hold-fraction", kDefaultHoldFraction), 0.1, 0.9
         );
         auto cycle = 1.0 / maxCps;
         cfg.holdLockout = cycle * holdFraction;
@@ -294,6 +299,207 @@ class $modify(CappedPlayLayer, PlayLayer) {
         g_states.clear();
         g_hudBase = false;
         PlayLayer::onQuit();
+    }
+};
+
+// the settings menu whichnis opened in the pause menu on a level
+class CPSCapPopup : public geode::Popup {
+protected:
+    TextInput* m_cpsInput = nullptr;
+    TextInput* m_fracInput = nullptr;
+    Slider* m_cpsSlider = nullptr;
+    Slider* m_fracSlider = nullptr;
+
+    static double cpsFromSlider(float v) {
+        return 1.0 + static_cast<double>(v) * 239.0;
+    }
+    static float sliderFromCps(double cps) {
+        return static_cast<float>(std::clamp((cps - 1.0) / 239.0, 0.0, 1.0));
+    }
+    static double fracFromSlider(float v) {
+        return 0.1 + static_cast<double>(v) * 0.8;
+    }
+    static float sliderFromFrac(double frac) {
+        return static_cast<float>(std::clamp((frac - 0.1) / 0.8, 0.0, 1.0));
+    }
+
+    void refreshCps(bool updateSlider) {
+        auto cps = Mod::get()->getSavedValue<double>("max-cps", kDefaultMaxCps);
+        m_cpsInput->setString(fmt::format("{:.2f}", cps));
+        if (updateSlider) {
+            m_cpsSlider->setValue(sliderFromCps(cps));
+        }
+    }
+
+    void refreshFrac(bool updateSlider) {
+        auto frac = Mod::get()->getSavedValue<double>("hold-fraction", kDefaultHoldFraction);
+        m_fracInput->setString(fmt::format("{:.0f}", frac * 100.0));
+        if (updateSlider) {
+            m_fracSlider->setValue(sliderFromFrac(frac));
+        }
+    }
+
+    CCMenuItemToggler* addToggle(
+        CCMenu* menu, char const* label, char const* key, bool def, float y
+    ) {
+        auto toggle = CCMenuItemToggler::createWithStandardSprites(
+            this, menu_selector(CPSCapPopup::onToggle), 0.7f
+        );
+        toggle->setUserObject(CCString::create(key));
+        toggle->toggle(Mod::get()->getSavedValue<bool>(key, def));
+        toggle->setPosition({45.f, y});
+        menu->addChild(toggle);
+
+        auto text = CCLabelBMFont::create(label, "bigFont.fnt");
+        text->setScale(0.45f);
+        text->setAnchorPoint({0.f, 0.5f});
+        text->setPosition({65.f, y});
+        m_mainLayer->addChild(text);
+        return toggle;
+    }
+
+    bool init() {
+        if (!Popup::init(320.f, 260.f)) {
+            return false;
+        }
+        this->setTitle("CPS Cap");
+        auto menu = m_buttonMenu;
+
+        addToggle(menu, "Enable CPS Cap", "enabled", true, 215.f);
+        addToggle(menu, "Debounce", "debounce", false, 186.f);
+        addToggle(menu, "Cap Buttons Separately", "per-button", false, 157.f);
+
+        // cps label
+        auto cpsLabel = CCLabelBMFont::create("Max CPS", "bigFont.fnt");
+        cpsLabel->setScale(0.45f);
+        cpsLabel->setAnchorPoint({0.f, 0.5f});
+        cpsLabel->setPosition({65.f, 124.f});
+        m_mainLayer->addChild(cpsLabel);
+
+        // cps input
+        m_cpsInput = TextInput::create(70.f, "16.67");
+        m_cpsInput->setCommonFilter(CommonFilter::Float);
+        m_cpsInput->setMaxCharCount(7);
+        m_cpsInput->setScale(0.8f);
+        m_cpsInput->setPosition({250.f, 124.f});
+        m_cpsInput->setCallback([this](std::string const& str) {
+            this->onCpsInput(str);
+        });
+        m_mainLayer->addChild(m_cpsInput);
+
+        // cps slider
+        m_cpsSlider = Slider::create(this, menu_selector(CPSCapPopup::onCpsSlider), 0.8f);
+        m_cpsSlider->setPosition({150.f, 96.f});
+        m_mainLayer->addChild(m_cpsSlider);
+
+        // k55 reset button
+        auto k55Spr = CCSprite::createWithSpriteFrameName("geode.loader/reset-gold.png");
+        k55Spr->setScale(0.7f);
+        auto k55Btn = CCMenuItemSpriteExtra::create(
+            k55Spr, this, menu_selector(CPSCapPopup::onK55Reset)
+        );
+        k55Btn->setPosition({258.f, 96.f});
+        menu->addChild(k55Btn);
+
+        // split label
+        auto fracLabel = CCLabelBMFont::create("Press/Release Split", "bigFont.fnt");
+        fracLabel->setScale(0.45f);
+        fracLabel->setAnchorPoint({0.f, 0.5f});
+        fracLabel->setPosition({65.f, 62.f});
+        m_mainLayer->addChild(fracLabel);
+
+        // split input
+        m_fracInput = TextInput::create(70.f, "50");
+        m_fracInput->setCommonFilter(CommonFilter::Uint);
+        m_fracInput->setMaxCharCount(2);
+        m_fracInput->setScale(0.8f);
+        m_fracInput->setPosition({250.f, 62.f});
+        m_fracInput->setCallback([this](std::string const& str) {
+            this->onFracInput(str);
+        });
+        m_mainLayer->addChild(m_fracInput);
+
+        // split slider
+        m_fracSlider = Slider::create(this, menu_selector(CPSCapPopup::onFracSlider), 0.8f);
+        m_fracSlider->setPosition({150.f, 34.f});
+        m_mainLayer->addChild(m_fracSlider);
+
+        refreshCps(true);
+        refreshFrac(true);
+        return true;
+    }
+
+    void onToggle(CCObject* sender) {
+        auto toggle = static_cast<CCMenuItemToggler*>(sender);
+        auto key = static_cast<CCString*>(toggle->getUserObject())->getCString();
+        Mod::get()->setSavedValue<bool>(key, !toggle->isToggled());
+    }
+
+    void onCpsSlider(CCObject* sender) {
+        auto value = static_cast<SliderThumb*>(sender)->getValue();
+        Mod::get()->setSavedValue<double>("max-cps", cpsFromSlider(value));
+        refreshCps(false);
+    }
+
+    void onFracSlider(CCObject* sender) {
+        auto value = static_cast<SliderThumb*>(sender)->getValue();
+        Mod::get()->setSavedValue<double>("hold-fraction", fracFromSlider(value));
+        refreshFrac(false);
+    }
+
+    void onCpsInput(std::string const& str) {
+        if (auto num = numFromString<double>(str)) {
+            auto cps = std::clamp(*num, 1.0, 240.0);
+            Mod::get()->setSavedValue<double>("max-cps", cps);
+            m_cpsSlider->setValue(sliderFromCps(cps));
+        }
+    }
+
+    void onFracInput(std::string const& str) {
+        if (auto num = numFromString<double>(str)) {
+            auto frac = std::clamp(*num / 100.0, 0.1, 0.9);
+            Mod::get()->setSavedValue<double>("hold-fraction", frac);
+            m_fracSlider->setValue(sliderFromFrac(frac));
+        }
+    }
+
+    void onK55Reset(CCObject*) {
+        Mod::get()->setSavedValue<double>("max-cps", kDefaultMaxCps);
+        refreshCps(true);
+    }
+
+public:
+    static CPSCapPopup* create() {
+        auto ret = new CPSCapPopup();
+        if (ret->init()) {
+            ret->autorelease();
+            return ret;
+        }
+        delete ret;
+        return nullptr;
+    }
+};
+
+class $modify(CappedPauseLayer, PauseLayer) {
+    void customSetup() {
+        PauseLayer::customSetup();
+
+        auto sprite = CCSprite::create("MenuKey.png"_spr);
+        if (!sprite) return;
+        sprite->setScale(30.f / sprite->getContentSize().height);
+        auto button = CCMenuItemSpriteExtra::create(
+            sprite, this, menu_selector(CappedPauseLayer::onCPSCap)
+        );
+        button->setID("cps-cap-button"_spr);
+
+        if (auto menu = this->getChildByID("right-button-menu")) {
+            menu->addChild(button);
+            menu->updateLayout();
+        }
+    }
+
+    void onCPSCap(CCObject*) {
+        CPSCapPopup::create()->show();
     }
 };
 

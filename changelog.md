@@ -1,3 +1,5 @@
+# Release 2.1.0
+- Moved over all settings into the pause menu.
 # Release 2.0.7
 - Addressed a major flaw in my logic which the SCL staff pointed out
 # Release 2.0.6
