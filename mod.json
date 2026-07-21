@@ -1,17 +1,27 @@
 {
-	"geode": "$GEODE_VERSION",
-	"gd": {
-		"win": "2.2081",
-		"android": "2.2081",
-		"mac": "2.2081",
-		"ios": "2.2081"
-	},
-	"id": "$MOD_ID",
-	"name": "$MOD_NAME",
-	"version": "$MOD_VERSION",
-	"developer": "$MOD_DEVELOPER",
-	"description": "$MOD_DESCRIPTION",
-	"dependencies": {
-		"geode.node-ids": ">=v1.23.3"
-	}
+    "geode": "5.8.2",
+  "gd": {
+    "win": "2.2081",
+    "android": "2.2081",
+    "ios": "2.2081",
+    "mac": "2.2081"
+  },
+  "id": "natha.cps-cap",
+  "name": "CPS Cap",
+  "version": "v3.0.0",
+  "developers": [
+    "wZoinkoff",
+    "Anticroom"
+  ],
+  "description": "Recreates the cap on the k55/k70 keyboards.",
+  "tags": [
+    "offline",
+    "gameplay",
+    "utility"
+  ],
+  "resources": {
+    "sprites": [
+      "resources/MenuCap.png"
+    ]
+  }
 }
