@@ -3,7 +3,6 @@
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
 #include <Geode/modify/PauseLayer.hpp>
-#include <Geode/ui/Notification.hpp>
 #include <Geode/ui/Popup.hpp>
 
 #include <algorithm>
@@ -222,15 +221,6 @@ class $modify(CappedPlayLayer, PlayLayer) {
         gates.clear();
         cappedThisAttempt = false;
         return PlayLayer::init(level, useReplay, dontCreateObjects);
-    }
-
-    void levelComplete() {
-        PlayLayer::levelComplete();
-
-        if (cappedThisAttempt) {
-            Notification::create("CPS capped", NotificationIcon::Info)->show();
-            cappedThisAttempt = false;
-        }
     }
 
     void resetLevel() {
